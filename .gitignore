@@ -1,0 +1,203 @@
+####################################
+# 通用忽略规则 (所有目录生效)
+####################################
+
+# --- 白名单目录 ---
+!文档/
+!文档/**
+
+# 黑名单：
+软著/
+软著/**
+
+
+# --- OS 系统文件 ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# --- 临时文件 ---
+*.swp
+*.swo
+*.tmp
+*.temp
+*~
+
+# --- git和Vscode文件 ---
+.git/
+.vscode/
+.github/
+
+####################################
+# STM32 目录 (Keil MDK / STM32CubeIDE / IAR)
+####################################
+
+# --- Keil MDK 编译输出 ---
+STM32/**/*.o
+STM32/**/*.d
+STM32/**/*.crf
+STM32/**/*.dep
+STM32/**/*.axf
+STM32/**/*.htm
+STM32/**/*.lnp
+STM32/**/*.sct
+STM32/**/*.lst
+STM32/**/*.map
+STM32/**/*.iex
+STM32/**/*.uvguix.*
+STM32/**/*.uvoptx
+STM32/**/*.scvd
+STM32/**/*.bak
+STM32/**/*.log
+STM32/**/JLinkLog.txt
+
+# --- Keil 输出目录 ---
+STM32/**/Objects/
+STM32/**/Listings/
+STM32/**/RTE/
+
+# --- STM32CubeIDE ---
+STM32/**/Debug/
+STM32/**/Release/
+STM32/**/.settings/
+STM32/**/RemoteSystemsTempFiles/
+
+# --- STM32CubeMX ---
+STM32/**/*.mxproject
+STM32/**/*.backup
+
+# --- IAR Embedded Workbench ---
+STM32/**/*.ewt
+STM32/**/*.ewd
+STM32/**/*.ewp~
+STM32/**/*.dni
+STM32/**/*.dbgdt
+STM32/**/*.wsdt
+STM32/**/*.wspos
+STM32/**/EWARM/Debug/
+STM32/**/EWARM/Release/
+STM32/**/EWARM/settings/
+
+####################################
+# Windows 目录 (Visual Studio / VS Code)
+####################################
+
+# --- Visual Studio ---
+Windows/**/.vs/
+Windows/**/*.suo
+Windows/**/*.user
+Windows/**/*.userosscache
+Windows/**/*.sln.docstates
+Windows/**/*.ncb
+Windows/**/*.aps
+Windows/**/*.pdb
+Windows/**/*.ilk
+Windows/**/*.obj
+Windows/**/*.pch
+Windows/**/*.sbr
+Windows/**/*.tlb
+Windows/**/*.tlh
+Windows/**/*.bak
+Windows/**/*.log
+Windows/**/*.cache
+Windows/**/*.VC.db
+Windows/**/*.VC.VC.opendb
+Windows/**/ipch/
+Windows/**/x64/
+Windows/**/x86/
+
+# --- Visual Studio Code ---
+Windows/**/.vscode/
+Windows/**/*.code-workspace
+
+# --- Windows 构建输出 ---
+Windows/**/[Dd]ebug/
+Windows/**/[Rr]elease/
+Windows/**/[Bb]in/
+Windows/**/[Oo]bj/
+
+####################################
+# Android 目录 (Gradle / Android Studio)
+####################################
+
+# --- IDE 配置 ---
+Android/**/.idea/
+Android/**/*.iml
+Android/**/*.ipr
+Android/**/*.iws
+Android/**/.classpath
+Android/**/.project
+Android/**/.metadata/
+
+# --- Gradle 缓存和构建输出 ---
+Android/**/.gradle/
+Android/**/build/
+Android/**/.kotlin/
+Android/**/out/
+Android/**/bin/
+Android/**/gen/
+Android/**/dist/
+
+# --- 本地配置 ---
+Android/**/local.properties
+
+# --- Android 构建产物 ---
+Android/**/*.apk
+Android/**/*.aab
+Android/**/*.ap_
+Android/**/*.dex
+Android/**/*.class
+
+# --- Native 构建中间文件 ---
+Android/**/.externalNativeBuild/
+Android/**/.cxx/
+Android/**/captures/
+
+# --- ProGuard ---
+Android/**/proguard/
+
+# --- Android Studio ---
+Android/**/*.hprof
+Android/**/.navigation/
+
+####################################
+# Harmony 目录 (DevEco / hvigor / ohpm)
+####################################
+
+# --- IDE 配置 ---
+Harmony/**/.idea/
+Harmony/**/*.iml
+
+# --- hvigor 生成的缓存/输出 ---
+Harmony/**/.hvigor/
+
+# --- ohpm 依赖缓存 ---
+Harmony/**/oh_modules/
+Harmony/**/.ohpm/
+
+# --- App Analyzer 输出/缓存 ---
+Harmony/**/.appanalyzer/
+
+# --- Harmony 构建输出 ---
+Harmony/**/build/
+Harmony/**/libs/
+
+# --- Node.js ---
+Harmony/**/node_modules/
+
+####################################
+# 密钥和敏感文件 (所有目录生效)
+####################################
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+*.mobileprovision
+*.cer
+*.crt
+secrets.json
+credentials.json
+
+
