@@ -19,10 +19,10 @@
 #define LCD_H_RES 480
 #define LCD_V_RES 320
 
-// 底层 SPI 分块发送行数。适中取值兼顾刷新速度和稳定性。
-#define LCD_IO_LINES 20
 // LVGL 渲染缓冲行数。
 #define LVGL_DRAW_BUF_LINES 64
+// 底层 SPI 分块发送行数，与 LVGL 缓冲区对齐以减少事务数。
+#define LCD_IO_LINES LVGL_DRAW_BUF_LINES
 
 // 下面这一组是当前项目假定的 LCD 接线。
 // 如果实物接线不同，先改这里再烧录。
@@ -35,7 +35,7 @@
 #define PIN_NUM_LCD_RST 14
 #define PIN_NUM_LCD_BKLT 21
 
-#define LCD_SPI_CLOCK_HZ (80 * 1000 * 1000)
+#define LCD_SPI_CLOCK_HZ (40 * 1000 * 1000)
 #define LCD_SPI_MODE 0
 #define LCD_BKLT_ON_LEVEL 1
 
@@ -388,7 +388,7 @@ static void ui_create(void)
     lv_obj_set_style_border_width(mini_card, 0, 0);
 
     lv_obj_t *mini_label = lv_label_create(mini_card);
-    lv_label_set_text(mini_label, "SPI\n80 MHz");
+    lv_label_set_text(mini_label, "SPI\n40 MHz");
     lv_obj_set_style_text_align(mini_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(mini_label, lv_color_hex(0xdce6ff), 0);
     lv_obj_center(mini_label);
