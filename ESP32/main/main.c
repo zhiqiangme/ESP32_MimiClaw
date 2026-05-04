@@ -338,10 +338,30 @@ static void lvgl_flush_cb(lv_display_t *display, const lv_area_t *area, uint8_t 
 static void ui_stats_timer_cb(lv_timer_t *timer)
 {
     static int32_t phase = 0;
-    int32_t load = (phase * 7) % 101;
+
+    // Real CPU usage via FreeRTOS run-time stats
+    static uint64_t prev_total = 0;
+    TaskStatus_t tasks[8];
+    uint32_t count = uxTaskGetSystemState(tasks, 8, NULL);
+    uint64_t total = 0;
+    uint32_t idle_time = 0;
+    for(uint32_t i = 0; i < count; i++) {
+        total += tasks[i].ulRunTimeCounter;
+        if(strncmp(tasks[i].pcTaskName, "IDLE", 4) == 0) {
+            idle_time = tasks[i].ulRunTimeCounter;
+        }
+    }
+    uint64_t delta_total = total - prev_total;
+    prev_total = total;
+    int32_t load = 0;
+    if(delta_total > 0) {
+        load = (int32_t)(100 - (idle_time * 100 / (delta_total > 0 ? delta_total : 1)));
+        if(load < 0) load = 0;
+        if(load > 100) load = 100;
+    }
+
     int32_t temp = 18 + ((phase * 3) % 18);
     int32_t humid = 40 + ((phase * 5) % 50);
-    int32_t press = 1008 + ((phase * 2) % 20);
 
     lv_arc_set_value(s_arc, load);
     lv_bar_set_value(s_bar_temp, temp, LV_ANIM_OFF);
@@ -349,7 +369,6 @@ static void ui_stats_timer_cb(lv_timer_t *timer)
     lv_label_set_text_fmt(s_load_pct, "%ld%%", (long)load);
     lv_label_set_text_fmt(s_temp_val, "%ld C", (long)temp);
     lv_label_set_text_fmt(s_humid_val, "%ld%%", (long)humid);
-    lv_label_set_text_fmt(s_press_val, "%ld hPa", (long)press);
     lv_label_set_text_fmt(s_frame_label, "frame %ld", (long)phase);
 
     phase++;
@@ -445,9 +464,6 @@ static void ui_create(void)
 
     ui_create_sidebar_card(left_col, "HUMIDITY", &s_humid_val, lv_color_hex(0x22d3ee));
     lv_label_set_text(s_humid_val, "52%");
-
-    ui_create_sidebar_card(left_col, "PRESSURE", &s_press_val, lv_color_hex(0xfacc15));
-    lv_label_set_text(s_press_val, "1013 hPa");
 
     /* ── Center column: gauge + info boxes ────────────────── */
     lv_obj_t *ctr_col = lv_obj_create(scr);
@@ -582,7 +598,7 @@ static void ui_create(void)
     lv_obj_align(tmp_lbl, LV_ALIGN_TOP_LEFT, 0, 28);
 
     s_bar_temp = lv_bar_create(bar_panel);
-    lv_obj_set_size(s_bar_temp, 98, 8);
+    lv_obj_set_size(s_bar_temp, 78, 8);
     lv_obj_align(s_bar_temp, LV_ALIGN_TOP_LEFT, 32, 32);
     lv_bar_set_range(s_bar_temp, 0, 50);
     lv_bar_set_value(s_bar_temp, 24, LV_ANIM_OFF);
@@ -596,7 +612,7 @@ static void ui_create(void)
     lv_obj_align(hmd_lbl, LV_ALIGN_TOP_LEFT, 0, 58);
 
     s_bar_humid = lv_bar_create(bar_panel);
-    lv_obj_set_size(s_bar_humid, 88, 8);
+    lv_obj_set_size(s_bar_humid, 68, 8);
     lv_obj_align(s_bar_humid, LV_ALIGN_TOP_LEFT, 42, 62);
     lv_bar_set_range(s_bar_humid, 0, 100);
     lv_bar_set_value(s_bar_humid, 52, LV_ANIM_OFF);
