@@ -4,6 +4,7 @@
 
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -21,8 +22,9 @@
 
 // LVGL 渲染缓冲行数。
 #define LVGL_DRAW_BUF_LINES 64
-// 底层 SPI 分块发送行数，与 LVGL 缓冲区对齐以减少事务数。
-#define LCD_IO_LINES LVGL_DRAW_BUF_LINES
+// 底层 SPI 分块发送行数。ESP32-S3 SPI master 单事务 DMA 上限 = 2^18 bit = 32 KB；
+// 480*16*3 = 23040 字节 < 32 KB，留出余量；配合 ping/pong 两块缓冲让 CPU 展开和 DMA 发送重叠。
+#define LCD_IO_LINES 16
 
 // 下面这一组是当前项目假定的 LCD 接线。
 // 如果实物接线不同，先改这里再烧录。
@@ -64,8 +66,10 @@
 static const char *TAG = "ili9488_lvgl";
 
 static spi_device_handle_t s_lcd_spi;
-// ILI9488 按 18-bit SPI 模式写像素，因此底层发送缓冲按 3 字节/像素预留。
-static uint8_t s_lcd_io_buf[LCD_H_RES * LCD_IO_LINES * 3];
+// ILI9488 按 18-bit SPI 模式写像素，每像素 3 字节。两块 ping/pong DMA 缓冲：CPU 展开下一块时 DMA 读上一块。
+// DRAM_ATTR 强制放在内部 SRAM 上，确保 SPI DMA 可达。
+static DRAM_ATTR uint8_t s_lcd_io_buf[2][LCD_H_RES * LCD_IO_LINES * 3];
+static spi_transaction_t s_pixel_trans[2];
 // LVGL 用 RGB565 渲染，减少内存占用；flush 时再转换成 ILI9488 需要的 18-bit。
 static uint16_t s_lvgl_buf[LCD_H_RES * LVGL_DRAW_BUF_LINES];
 
@@ -157,13 +161,13 @@ static void lcd_set_window(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
     lcd_send_cmd(ILI9488_CMD_RAMWR);
 }
 
-static size_t lcd_expand_rgb565_to_666_block(const uint16_t *src, size_t pixels)
+static size_t lcd_expand_rgb565_to_666_block(uint8_t *dst, const uint16_t *src, size_t pixels)
 {
     for(size_t i = 0; i < pixels; ++i) {
         uint16_t color = src[i];
-        s_lcd_io_buf[(i * 3) + 0] = (uint8_t)(color >> 8) & 0xF8;
-        s_lcd_io_buf[(i * 3) + 1] = (uint8_t)(color >> 3) & 0xFC;
-        s_lcd_io_buf[(i * 3) + 2] = (uint8_t)(color << 3);
+        dst[(i * 3) + 0] = (uint8_t)(color >> 8) & 0xF8;
+        dst[(i * 3) + 1] = (uint8_t)(color >> 3) & 0xFC;
+        dst[(i * 3) + 2] = (uint8_t)(color << 3);
     }
 
     return pixels * 3;
@@ -175,17 +179,50 @@ static void lcd_draw_bitmap_rgb565(uint16_t x, uint16_t y, uint16_t width, uint1
         return;
     }
 
+    // 整段像素流期间锁住总线，避免每个事务都重新仲裁 / 重压器件配置。
+    ESP_ERROR_CHECK(spi_device_acquire_bus(s_lcd_spi, portMAX_DELAY));
+
     lcd_set_window(x, y, x + width - 1, y + height - 1);
+
+    // RAMWR 之后所有像素事务都是数据，DC 在循环外置一次即可。
+    gpio_set_level(PIN_NUM_LCD_DC, 1);
+
+    int ping = 0;
+    int in_flight = 0;
 
     while(height > 0) {
         uint16_t chunk_lines = height > LCD_IO_LINES ? LCD_IO_LINES : height;
         size_t chunk_pixels = (size_t)width * chunk_lines;
-        size_t bytes_to_send = lcd_expand_rgb565_to_666_block(pixels, chunk_pixels);
-        lcd_send_data(s_lcd_io_buf, bytes_to_send);
+        // CPU 在这里写 buf[ping]；如果上一块还在 DMA，那就是真正的并行发生处。
+        size_t bytes_to_send = lcd_expand_rgb565_to_666_block(s_lcd_io_buf[ping], pixels, chunk_pixels);
 
+        spi_transaction_t *trans = &s_pixel_trans[ping];
+        memset(trans, 0, sizeof(*trans));
+        trans->length = bytes_to_send * 8;
+        trans->tx_buffer = s_lcd_io_buf[ping];
+
+        ESP_ERROR_CHECK(spi_device_queue_trans(s_lcd_spi, trans, portMAX_DELAY));
+        in_flight++;
+
+        ping ^= 1;
         pixels += chunk_pixels;
         height -= chunk_lines;
+
+        // 维持最多两块在飞，第三块来之前先收掉最早的那块，腾出缓冲槽。
+        if(in_flight >= 2) {
+            spi_transaction_t *done;
+            ESP_ERROR_CHECK(spi_device_get_trans_result(s_lcd_spi, &done, portMAX_DELAY));
+            in_flight--;
+        }
     }
+
+    while(in_flight > 0) {
+        spi_transaction_t *done;
+        ESP_ERROR_CHECK(spi_device_get_trans_result(s_lcd_spi, &done, portMAX_DELAY));
+        in_flight--;
+    }
+
+    spi_device_release_bus(s_lcd_spi);
 }
 
 static void lcd_fill_screen(uint16_t color)
@@ -268,7 +305,30 @@ static void lvgl_flush_cb(lv_display_t *display, const lv_area_t *area, uint8_t 
     uint16_t width = (uint16_t)(area->x2 - area->x1 + 1);
     uint16_t height = (uint16_t)(area->y2 - area->y1 + 1);
 
+    // 临时计时：每秒最多打一行 flush 耗时统计，用来确认 SPI 流是否接近理论极限。
+    // 验证完性能后可移除这段（连同 g_flush_*  static）。
+    static int64_t g_flush_last_log_us = 0;
+    static uint32_t g_flush_count = 0;
+    static uint64_t g_flush_pixels = 0;
+    static uint64_t g_flush_total_us = 0;
+    int64_t t0 = esp_timer_get_time();
+
     lcd_draw_bitmap_rgb565((uint16_t)area->x1, (uint16_t)area->y1, width, height, (const uint16_t *)px_map);
+
+    int64_t dt = esp_timer_get_time() - t0;
+    g_flush_count++;
+    g_flush_pixels += (uint64_t)width * height;
+    g_flush_total_us += (uint64_t)dt;
+    if(t0 - g_flush_last_log_us > 1000000) {
+        ESP_LOGI(TAG, "flush: %lu calls, %llu px, %llu us total, last %ux%u %lld us",
+                 (unsigned long)g_flush_count, g_flush_pixels, g_flush_total_us,
+                 width, height, dt);
+        g_flush_last_log_us = t0;
+        g_flush_count = 0;
+        g_flush_pixels = 0;
+        g_flush_total_us = 0;
+    }
+
     lv_display_flush_ready(display);
 }
 
@@ -289,7 +349,8 @@ static void ui_stats_timer_cb(lv_timer_t *timer)
     int32_t temp = 24 + ((phase * 3) % 12);
 
     lv_arc_set_value(s_arc, load);
-    lv_bar_set_value(s_bar, temp, LV_ANIM_ON);
+    // 关闭 bar 动画：动画会在每个 LVGL tick 间隔触发脏区，单 SPI 屏吃不消。
+    lv_bar_set_value(s_bar, temp, LV_ANIM_OFF);
     lv_label_set_text_fmt(s_status_value_label, "%ld%%", (long)load);
     lv_label_set_text_fmt(s_temp_value_label, "%ld C", (long)temp);
     lv_label_set_text_fmt(label, "Render loop stable  |  frame %ld", (long)phase);
@@ -322,9 +383,8 @@ static lv_obj_t *ui_create_metric_card(lv_obj_t *parent, const char *title, lv_o
 static void ui_create(void)
 {
     lv_obj_t *scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a0f1c), 0);
-    lv_obj_set_style_bg_grad_color(scr, lv_color_hex(0x16213a), 0);
-    lv_obj_set_style_bg_grad_dir(scr, LV_GRAD_DIR_VER, 0);
+    // 用单色背景代替全屏渐变：渐变会让任何脏区都被放大成大面积重绘，对 SPI 屏代价很高。
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x10182a), 0);
 
     lv_obj_t *header = lv_obj_create(scr);
     lv_obj_set_size(header, 448, 54);
