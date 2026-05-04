@@ -284,6 +284,72 @@ Flowmeter/
 - 梳理设备寄存器与参数配置
 - 为单片机接入预留接口与架构空间
 
+## 排错记录：ESP32-S3 + ILI9488 屏幕刷新优化
+
+记录 [ESP32/main/main.c](ESP32/main/main.c) 优化过程中遇到的问题，避免后续踩同样的坑。
+
+### 现象
+
+整屏刷一次约 1 秒，肉眼可见自上而下扫一遍的进度感。
+
+### 根因（按贡献度排序）
+
+1. **CPU 与 SPI 串行**：原 `lcd_draw_bitmap_rgb565` 走「展开一块 → `spi_device_polling_transmit` 阻塞等完 → 展开下一块」，pipeline 退化成串行。
+2. **每次 flush 都重新仲裁总线**：每个事务都让驱动重新 acquire/release，LVGL 局部刷新一秒上百次事务，开销累积。
+3. **LVGL 脏区被放大**：整屏渐变背景 + bar 动画 `LV_ANIM_ON`，任意一处变化都会把渐变重绘一遍。
+4. **次要**：FreeRTOS tick 100 Hz 让 `vTaskDelay(pdMS_TO_TICKS(<10))` 退化为 0 tick；ILI9488 SPI 4 线模式 **不能** 用 16-bit/像素（COLMOD=0x55 不支持），必须 18-bit/像素 3 字节展开。
+
+### 解决办法
+
+- **双缓冲 + 队列化 SPI**：`s_lcd_io_buf[2][...]`（`DRAM_ATTR` 强制内部 SRAM），用 `spi_device_acquire_bus` + `spi_device_queue_trans` / `spi_device_get_trans_result` 维持最多 2 个事务在飞，CPU 展开下一块和 DMA 发送上一块真正并行。
+- **整段像素流期间只设一次 DC**：`lcd_set_window` 之后 GPIO DC 抬高一次，全部数据事务复用。
+- **背景由全屏渐变改单色** + bar 动画 `LV_ANIM_ON` → `LV_ANIM_OFF`，把 LVGL 脏区降到最小。
+
+### 过程中踩到的两个坑
+
+#### 坑 1：`txdata transfer > hardware max supported len`
+
+```
+E spi_master: check_trans_valid(1159): txdata transfer > hardware max supported len
+ESP_ERROR_CHECK failed: esp_err_t 0x102 (ESP_ERR_INVALID_ARG)
+```
+
+ESP32-S3 SPI master 单事务 DMA 上限是 `SPI_LL_DMA_MAX_BIT_LEN = 1 << 18 = 262144 bit = 32 KB`。
+最初按 32 行/块（480·32·3 = 46 080 字节）超出，于是把 `LCD_IO_LINES` 调成 **16**（480·16·3 = 23 040 字节，留出余量）。这个限制和 buscfg 里的 `max_transfer_sz` 是两个独立的检查，是底层硬件位宽决定的，调 `max_transfer_sz` 没用。
+
+#### 坑 2：`A stack overflow in task main has been detected`
+
+```
+I (874) ili9488_lvgl: init LVGL
+***ERROR*** A stack overflow in task main has been detected.
+```
+
+[ESP32/sdkconfig](ESP32/sdkconfig) 里 `CONFIG_ESP_MAIN_TASK_STACK_SIZE=3584` 太小，LVGL `ui_create()` 的 widget 创建链 + `ESP_LOGI` 的 `vsnprintf` 一路把栈打爆。改成 **8192** 解决。LVGL 工程的主任务栈一般要给到 8 KB 起。
+
+### 验收数据
+
+加 Phase 0 计时日志（[main.c:266-300](ESP32/main/main.c#L266-L300)）后串口稳定输出：
+
+```
+I (12594) ili9488_lvgl: flush: 9 calls, 18135 px, 13046 us total, last 24x36 729 us
+I (16204) ili9488_lvgl: flush: 9 calls, 31895 px, 21457 us total, last 31x37 905 us
+```
+
+每秒 9 次小区域刷新合计 **13–21 ms**（之前 ~1 s），单次小区域刷新 0.5–1 ms。性能确认完后这段计时日志可以删除。
+
+### 构建 / 烧录流程（PowerShell 7）
+
+`~\Documents\PowerShell\Microsoft.PowerShell_profile.ps1` 里定义了三个虚拟环境：`espidf`、`zephyr`、`rtt`。本工程用 `espidf`：
+
+```powershell
+espidf
+cd D:\Project\MimiClaw\ESP32
+idf.py build
+idf.py -p COM6 flash monitor   # CH340 USB-UART 桥
+```
+
+注意 PowerShell tool 默认不加载 user profile，调用前要 `. $PROFILE` 显式加载，`espidf` 函数才能用。从 Git Bash / MSys 环境进 `export.ps1` 会被 ESP-IDF 拒绝（"MSys/Mingw is not supported"），必须用纯 Windows PowerShell 7。
+
 ## License
 
 可根据实际需要补充，例如：
