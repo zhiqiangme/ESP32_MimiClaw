@@ -73,10 +73,14 @@ static spi_transaction_t s_pixel_trans[2];
 // LVGL 用 RGB565 渲染，减少内存占用；flush 时再转换成 ILI9488 需要的 18-bit。
 static uint16_t s_lvgl_buf[LCD_H_RES * LVGL_DRAW_BUF_LINES];
 
-static lv_obj_t *s_status_value_label;
-static lv_obj_t *s_temp_value_label;
 static lv_obj_t *s_arc;
-static lv_obj_t *s_bar;
+static lv_obj_t *s_bar_temp;
+static lv_obj_t *s_bar_humid;
+static lv_obj_t *s_temp_val;
+static lv_obj_t *s_humid_val;
+static lv_obj_t *s_press_val;
+static lv_obj_t *s_load_pct;
+static lv_obj_t *s_frame_label;
 
 static void lcd_send_cmd(uint8_t cmd)
 {
@@ -332,220 +336,333 @@ static void lvgl_flush_cb(lv_display_t *display, const lv_area_t *area, uint8_t 
     lv_display_flush_ready(display);
 }
 
-static void ui_action_btn_event_cb(lv_event_t *e)
-{
-    lv_obj_t *label = lv_event_get_user_data(e);
-
-    if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
-        lv_label_set_text(label, "Sync queued");
-    }
-}
-
 static void ui_stats_timer_cb(lv_timer_t *timer)
 {
     static int32_t phase = 0;
-    lv_obj_t *label = lv_timer_get_user_data(timer);
     int32_t load = (phase * 7) % 101;
-    int32_t temp = 24 + ((phase * 3) % 12);
+    int32_t temp = 18 + ((phase * 3) % 18);
+    int32_t humid = 40 + ((phase * 5) % 50);
+    int32_t press = 1008 + ((phase * 2) % 20);
 
     lv_arc_set_value(s_arc, load);
-    // 关闭 bar 动画：动画会在每个 LVGL tick 间隔触发脏区，单 SPI 屏吃不消。
-    lv_bar_set_value(s_bar, temp, LV_ANIM_OFF);
-    lv_label_set_text_fmt(s_status_value_label, "%ld%%", (long)load);
-    lv_label_set_text_fmt(s_temp_value_label, "%ld C", (long)temp);
-    lv_label_set_text_fmt(label, "Render loop stable  |  frame %ld", (long)phase);
+    lv_bar_set_value(s_bar_temp, temp, LV_ANIM_OFF);
+    lv_bar_set_value(s_bar_humid, humid, LV_ANIM_OFF);
+    lv_label_set_text_fmt(s_load_pct, "%ld%%", (long)load);
+    lv_label_set_text_fmt(s_temp_val, "%ld C", (long)temp);
+    lv_label_set_text_fmt(s_humid_val, "%ld%%", (long)humid);
+    lv_label_set_text_fmt(s_press_val, "%ld hPa", (long)press);
+    lv_label_set_text_fmt(s_frame_label, "frame %ld", (long)phase);
 
     phase++;
 }
 
-static lv_obj_t *ui_create_metric_card(lv_obj_t *parent, const char *title, lv_obj_t **value_label)
+static void ui_create_sidebar_card(lv_obj_t *parent, const char *title, lv_obj_t **val_lbl, lv_color_t accent)
 {
     lv_obj_t *card = lv_obj_create(parent);
-    lv_obj_set_size(card, 146, 80);
-    lv_obj_set_style_radius(card, 20, 0);
-    lv_obj_set_style_bg_color(card, lv_color_hex(0x1d2436), 0);
+    lv_obj_set_size(card, 136, LV_SIZE_CONTENT);
+    lv_obj_set_style_radius(card, 16, 0);
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x141a2e), 0);
     lv_obj_set_style_border_width(card, 0, 0);
-    lv_obj_set_style_pad_all(card, 14, 0);
+    lv_obj_set_style_pad_all(card, 12, 0);
+    lv_obj_set_flex_grow(card, 0);
 
-    lv_obj_t *title_label = lv_label_create(card);
-    lv_label_set_text(title_label, title);
-    lv_obj_set_style_text_color(title_label, lv_color_hex(0x8da0c7), 0);
-    lv_obj_align(title_label, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_t *accent_line = lv_obj_create(card);
+    lv_obj_set_size(accent_line, 28, 3);
+    lv_obj_align(accent_line, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_bg_color(accent_line, accent, 0);
+    lv_obj_set_style_radius(accent_line, 2, 0);
+    lv_obj_set_style_border_width(accent_line, 0, 0);
 
-    *value_label = lv_label_create(card);
-    lv_obj_set_style_text_font(*value_label, LV_FONT_DEFAULT, 0);
-    lv_obj_set_style_text_color(*value_label, lv_color_hex(0xf5f7ff), 0);
-    lv_obj_align(*value_label, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_t *ttl = lv_label_create(card);
+    lv_label_set_text(ttl, title);
+    lv_obj_set_style_text_color(ttl, lv_color_hex(0x6a7fa8), 0);
+    lv_obj_align(ttl, LV_ALIGN_TOP_LEFT, 0, 10);
 
-    return card;
+    *val_lbl = lv_label_create(card);
+    lv_obj_set_style_text_font(*val_lbl, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(*val_lbl, lv_color_hex(0xf0f4ff), 0);
+    lv_obj_align(*val_lbl, LV_ALIGN_TOP_LEFT, 0, 32);
 }
 
 static void ui_create(void)
 {
     lv_obj_t *scr = lv_screen_active();
-    // 用单色背景代替全屏渐变：渐变会让任何脏区都被放大成大面积重绘，对 SPI 屏代价很高。
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x10182a), 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x0b0f1a), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
 
+    /* ── Header bar ───────────────────────────────────────── */
     lv_obj_t *header = lv_obj_create(scr);
-    lv_obj_set_size(header, 448, 44);
-    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 6);
-    lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
+    lv_obj_set_size(header, 480, 34);
+    lv_obj_align(header, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_bg_color(header, lv_color_hex(0x111728), 0);
+    lv_obj_set_style_radius(header, 0, 0);
     lv_obj_set_style_border_width(header, 0, 0);
-    lv_obj_set_style_pad_all(header, 0, 0);
+    lv_obj_set_style_pad_hor(header, 12, 0);
+    lv_obj_set_style_pad_ver(header, 0, 0);
 
-    lv_obj_t *title = lv_label_create(header);
-    lv_label_set_text(title, "MimiClaw Display");
-    lv_obj_set_style_text_font(title, LV_FONT_DEFAULT, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xf3f6ff), 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, -6);
+    lv_obj_t *hdr_title = lv_label_create(header);
+    lv_label_set_text(hdr_title, "MimiClaw");
+    lv_obj_set_style_text_font(hdr_title, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_color(hdr_title, lv_color_hex(0xf0f4ff), 0);
+    lv_obj_align(hdr_title, LV_ALIGN_LEFT_MID, 0, 0);
 
-    lv_obj_t *subtitle = lv_label_create(header);
-    lv_label_set_text(subtitle, "ESP32-S3  |  LVGL 9.5  |  ILI9488 SPI");
-    lv_obj_set_style_text_color(subtitle, lv_color_hex(0x8ea2cc), 0);
-    lv_obj_align(subtitle, LV_ALIGN_LEFT_MID, 2, 12);
+    lv_obj_t *hdr_pill = lv_obj_create(header);
+    lv_obj_set_size(hdr_pill, 88, 22);
+    lv_obj_align(hdr_pill, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_set_style_bg_color(hdr_pill, lv_color_hex(0x0d2818), 0);
+    lv_obj_set_style_radius(hdr_pill, 11, 0);
+    lv_obj_set_style_border_width(hdr_pill, 1, 0);
+    lv_obj_set_style_border_color(hdr_pill, lv_color_hex(0x1a5c30), 0);
+    lv_obj_set_style_pad_all(hdr_pill, 0, 0);
 
-    lv_obj_t *status_pill = lv_obj_create(header);
-    lv_obj_set_size(status_pill, 110, 30);
-    lv_obj_align(status_pill, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_set_style_radius(status_pill, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(status_pill, lv_color_hex(0x193c2c), 0);
-    lv_obj_set_style_border_width(status_pill, 0, 0);
-    lv_obj_set_style_pad_all(status_pill, 0, 0);
+    lv_obj_t *dot = lv_obj_create(hdr_pill);
+    lv_obj_set_size(dot, 6, 6);
+    lv_obj_align(dot, LV_ALIGN_LEFT_MID, 10, 0);
+    lv_obj_set_style_bg_color(dot, lv_color_hex(0x34d399), 0);
+    lv_obj_set_style_radius(dot, 3, 0);
+    lv_obj_set_style_border_width(dot, 0, 0);
 
-    lv_obj_t *status_text = lv_label_create(status_pill);
-    lv_label_set_text(status_text, "DISPLAY OK");
-    lv_obj_set_style_text_color(status_text, lv_color_hex(0x85f0b1), 0);
-    lv_obj_center(status_text);
+    lv_obj_t *pill_txt = lv_label_create(hdr_pill);
+    lv_label_set_text(pill_txt, "ONLINE");
+    lv_obj_set_style_text_color(pill_txt, lv_color_hex(0x34d399), 0);
+    lv_obj_set_style_text_font(pill_txt, LV_FONT_DEFAULT, 0);
+    lv_obj_align(pill_txt, LV_ALIGN_LEFT_MID, 20, 0);
 
-    lv_obj_t *left_card = lv_obj_create(scr);
-    lv_obj_set_size(left_card, 448, 100);
-    lv_obj_align(left_card, LV_ALIGN_TOP_MID, 0, 54);
-    lv_obj_set_style_radius(left_card, 26, 0);
-    lv_obj_set_style_bg_color(left_card, lv_color_hex(0x11192b), 0);
-    lv_obj_set_style_border_width(left_card, 0, 0);
-    lv_obj_set_style_pad_all(left_card, 10, 0);
+    /* ── Left column: sidebar stat cards ──────────────────── */
+    lv_obj_t *left_col = lv_obj_create(scr);
+    lv_obj_set_size(left_col, 140, 252);
+    lv_obj_align(left_col, LV_ALIGN_TOP_LEFT, 8, 40);
+    lv_obj_set_style_bg_opa(left_col, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(left_col, 0, 0);
+    lv_obj_set_style_pad_all(left_col, 0, 0);
+    lv_obj_set_layout(left_col, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(left_col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(left_col, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_gap(left_col, 4, 0);
 
-    lv_obj_t *metrics_row = lv_obj_create(left_card);
-    lv_obj_set_size(metrics_row, 420, 82);
-    lv_obj_center(metrics_row);
-    lv_obj_set_style_bg_opa(metrics_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(metrics_row, 0, 0);
-    lv_obj_set_style_pad_all(metrics_row, 0, 0);
-    lv_obj_set_layout(metrics_row, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(metrics_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(metrics_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    ui_create_sidebar_card(left_col, "TEMPERATURE", &s_temp_val, lv_color_hex(0xff8c42));
+    lv_label_set_text(s_temp_val, "24 C");
 
-    ui_create_metric_card(metrics_row, "GPU Load", &s_status_value_label);
-    lv_label_set_text(s_status_value_label, "0%");
+    ui_create_sidebar_card(left_col, "HUMIDITY", &s_humid_val, lv_color_hex(0x22d3ee));
+    lv_label_set_text(s_humid_val, "52%");
 
-    ui_create_metric_card(metrics_row, "Panel Temp", &s_temp_value_label);
-    lv_label_set_text(s_temp_value_label, "24 C");
+    ui_create_sidebar_card(left_col, "PRESSURE", &s_press_val, lv_color_hex(0xfacc15));
+    lv_label_set_text(s_press_val, "1013 hPa");
 
-    lv_obj_t *mini_card = lv_obj_create(metrics_row);
-    lv_obj_set_size(mini_card, 90, 82);
-    lv_obj_set_style_radius(mini_card, 20, 0);
-    lv_obj_set_style_bg_color(mini_card, lv_color_hex(0x26314d), 0);
-    lv_obj_set_style_border_width(mini_card, 0, 0);
+    /* ── Center column: gauge + info boxes ────────────────── */
+    lv_obj_t *ctr_col = lv_obj_create(scr);
+    lv_obj_set_size(ctr_col, 174, 252);
+    lv_obj_align(ctr_col, LV_ALIGN_TOP_LEFT, 156, 40);
+    lv_obj_set_style_bg_opa(ctr_col, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(ctr_col, 0, 0);
+    lv_obj_set_style_pad_all(ctr_col, 0, 0);
 
-    lv_obj_t *mini_label = lv_label_create(mini_card);
-    lv_label_set_text(mini_label, "SPI\n40 MHz");
-    lv_obj_set_style_text_align(mini_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(mini_label, lv_color_hex(0xdce6ff), 0);
-    lv_obj_center(mini_label);
+    lv_obj_t *ctr_panel = lv_obj_create(ctr_col);
+    lv_obj_set_size(ctr_panel, 174, 170);
+    lv_obj_align(ctr_panel, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_bg_color(ctr_panel, lv_color_hex(0x141a2e), 0);
+    lv_obj_set_style_radius(ctr_panel, 20, 0);
+    lv_obj_set_style_border_width(ctr_panel, 0, 0);
+    lv_obj_set_style_pad_all(ctr_panel, 12, 0);
 
-    lv_obj_t *main_grid = lv_obj_create(scr);
-    lv_obj_set_size(main_grid, 448, 96);
-    lv_obj_align(main_grid, LV_ALIGN_TOP_MID, 0, 158);
-    lv_obj_set_style_bg_opa(main_grid, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(main_grid, 0, 0);
-    lv_obj_set_style_pad_all(main_grid, 0, 0);
-
-    static int32_t col_dsc[] = {220, 212, LV_GRID_TEMPLATE_LAST};
-    static int32_t row_dsc[] = {96, LV_GRID_TEMPLATE_LAST};
-    lv_obj_set_grid_dsc_array(main_grid, col_dsc, row_dsc);
-
-    lv_obj_t *gauge_panel = lv_obj_create(main_grid);
-    lv_obj_set_grid_cell(gauge_panel, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 0, 1);
-    lv_obj_set_style_radius(gauge_panel, 26, 0);
-    lv_obj_set_style_bg_color(gauge_panel, lv_color_hex(0x11192b), 0);
-    lv_obj_set_style_border_width(gauge_panel, 0, 0);
-
-    s_arc = lv_arc_create(gauge_panel);
-    lv_obj_set_size(s_arc, 90, 90);
-    lv_obj_center(s_arc);
+    s_arc = lv_arc_create(ctr_panel);
+    lv_obj_set_size(s_arc, 146, 146);
+    lv_obj_align(s_arc, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_arc_set_rotation(s_arc, 135);
     lv_arc_set_bg_angles(s_arc, 0, 270);
     lv_arc_set_range(s_arc, 0, 100);
     lv_arc_set_value(s_arc, 0);
     lv_obj_remove_style(s_arc, NULL, LV_PART_KNOB);
-    lv_obj_set_style_arc_width(s_arc, 12, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(s_arc, lv_color_hex(0x2b3754), LV_PART_MAIN);
-    lv_obj_set_style_arc_width(s_arc, 12, LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(s_arc, lv_color_hex(0x4ee3b8), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(s_arc, 14, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_arc, lv_color_hex(0x1e293b), LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_arc, 14, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(s_arc, lv_color_hex(0x818cf8), LV_PART_INDICATOR);
 
-    lv_obj_t *arc_text = lv_label_create(gauge_panel);
-    lv_label_set_text(arc_text, "Render\nLoad");
-    lv_obj_set_style_text_align(arc_text, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(arc_text, lv_color_hex(0xcae0ff), 0);
-    lv_obj_center(arc_text);
+    lv_obj_t *ctr_ttl = lv_label_create(ctr_panel);
+    lv_label_set_text(ctr_ttl, "CPU");
+    lv_obj_set_style_text_color(ctr_ttl, lv_color_hex(0x6a7fa8), 0);
+    lv_obj_align(ctr_ttl, LV_ALIGN_TOP_LEFT, 46, 42);
 
-    lv_obj_t *info_panel = lv_obj_create(main_grid);
-    lv_obj_set_grid_cell(info_panel, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_STRETCH, 0, 1);
-    lv_obj_set_style_radius(info_panel, 26, 0);
-    lv_obj_set_style_bg_color(info_panel, lv_color_hex(0x11192b), 0);
-    lv_obj_set_style_border_width(info_panel, 0, 0);
-    lv_obj_set_style_pad_all(info_panel, 12, 0);
+    s_load_pct = lv_label_create(ctr_panel);
+    lv_label_set_text(s_load_pct, "0%");
+    lv_obj_set_style_text_font(s_load_pct, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(s_load_pct, lv_color_hex(0xf0f4ff), 0);
+    lv_obj_align(s_load_pct, LV_ALIGN_TOP_LEFT, 38, 66);
 
-    lv_obj_t *info_title = lv_label_create(info_panel);
-    lv_label_set_text(info_title, "System Preview");
-    lv_obj_set_style_text_font(info_title, LV_FONT_DEFAULT, 0);
-    lv_obj_set_style_text_color(info_title, lv_color_hex(0xf6f8ff), 0);
-    lv_obj_align(info_title, LV_ALIGN_TOP_LEFT, 0, 0);
+    /* ── Bottom info boxes ────────────────────────────────── */
+    lv_obj_t *box_panel = lv_obj_create(ctr_col);
+    lv_obj_set_size(box_panel, 174, 76);
+    lv_obj_align(box_panel, LV_ALIGN_TOP_LEFT, 0, 176);
+    lv_obj_set_style_bg_color(box_panel, lv_color_hex(0x141a2e), 0);
+    lv_obj_set_style_radius(box_panel, 16, 0);
+    lv_obj_set_style_border_width(box_panel, 0, 0);
+    lv_obj_set_style_pad_all(box_panel, 0, 0);
 
-    lv_obj_t *info_sub = lv_label_create(info_panel);
-    lv_label_set_text(info_sub, "LVGL partial refresh over SPI");
-    lv_obj_set_style_text_color(info_sub, lv_color_hex(0x8ea2cc), 0);
-    lv_obj_align(info_sub, LV_ALIGN_TOP_LEFT, 0, 28);
+    lv_obj_t *bx1 = lv_obj_create(box_panel);
+    lv_obj_set_size(bx1, 43, 60);
+    lv_obj_align(bx1, LV_ALIGN_TOP_LEFT, 8, 8);
+    lv_obj_set_style_bg_color(bx1, lv_color_hex(0x1a2240), 0);
+    lv_obj_set_style_radius(bx1, 10, 0);
+    lv_obj_set_style_border_width(bx1, 0, 0);
+    lv_obj_set_style_pad_all(bx1, 4, 0);
 
-    s_bar = lv_bar_create(info_panel);
-    lv_obj_set_size(s_bar, 160, 10);
-    lv_obj_align(s_bar, LV_ALIGN_TOP_LEFT, 0, 50);
-    lv_bar_set_range(s_bar, 20, 40);
-    lv_bar_set_value(s_bar, 24, LV_ANIM_OFF);
-    lv_obj_set_style_radius(s_bar, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_bar, lv_color_hex(0x26314d), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(s_bar, lv_color_hex(0xff8c42), LV_PART_INDICATOR);
+    lv_obj_t *bx1t = lv_label_create(bx1);
+    lv_label_set_text(bx1t, "NET");
+    lv_obj_set_style_text_color(bx1t, lv_color_hex(0x6a7fa8), 0);
+    lv_obj_set_style_text_font(bx1t, LV_FONT_DEFAULT, 0);
+    lv_obj_align(bx1t, LV_ALIGN_TOP_LEFT, 0, 0);
 
-    lv_obj_t *info_note = lv_label_create(info_panel);
-    lv_label_set_text(info_note, "Touch is disabled for now.\nThis screen verifies LVGL + panel flush.");
-    lv_obj_set_style_text_color(info_note, lv_color_hex(0xc8d5f2), 0);
-    lv_obj_align(info_note, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_t *bx1v = lv_label_create(bx1);
+    lv_label_set_text(bx1v, "12\nMbps");
+    lv_obj_set_style_text_color(bx1v, lv_color_hex(0x22d3ee), 0);
+    lv_obj_align(bx1v, LV_ALIGN_BOTTOM_LEFT, 0, 0);
 
+    lv_obj_t *bx2 = lv_obj_create(box_panel);
+    lv_obj_set_size(bx2, 43, 60);
+    lv_obj_align(bx2, LV_ALIGN_TOP_LEFT, 57, 8);
+    lv_obj_set_style_bg_color(bx2, lv_color_hex(0x1a2240), 0);
+    lv_obj_set_style_radius(bx2, 10, 0);
+    lv_obj_set_style_border_width(bx2, 0, 0);
+    lv_obj_set_style_pad_all(bx2, 4, 0);
+
+    lv_obj_t *bx2t = lv_label_create(bx2);
+    lv_label_set_text(bx2t, "FREQ");
+    lv_obj_set_style_text_color(bx2t, lv_color_hex(0x6a7fa8), 0);
+    lv_obj_set_style_text_font(bx2t, LV_FONT_DEFAULT, 0);
+    lv_obj_align(bx2t, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    lv_obj_t *bx2v = lv_label_create(bx2);
+    lv_label_set_text(bx2v, "240\nMHz");
+    lv_obj_set_style_text_color(bx2v, lv_color_hex(0xfacc15), 0);
+    lv_obj_align(bx2v, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+
+    lv_obj_t *bx3 = lv_obj_create(box_panel);
+    lv_obj_set_size(bx3, 43, 60);
+    lv_obj_align(bx3, LV_ALIGN_TOP_LEFT, 106, 8);
+    lv_obj_set_style_bg_color(bx3, lv_color_hex(0x1a2240), 0);
+    lv_obj_set_style_radius(bx3, 10, 0);
+    lv_obj_set_style_border_width(bx3, 0, 0);
+    lv_obj_set_style_pad_all(bx3, 4, 0);
+
+    lv_obj_t *bx3t = lv_label_create(bx3);
+    lv_label_set_text(bx3t, "MEM");
+    lv_obj_set_style_text_color(bx3t, lv_color_hex(0x6a7fa8), 0);
+    lv_obj_set_style_text_font(bx3t, LV_FONT_DEFAULT, 0);
+    lv_obj_align(bx3t, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    lv_obj_t *bx3v = lv_label_create(bx3);
+    lv_label_set_text(bx3v, "64\nKB");
+    lv_obj_set_style_text_color(bx3v, lv_color_hex(0xa78bfa), 0);
+    lv_obj_align(bx3v, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+
+    /* ── Right column: bars + info ────────────────────────── */
+    lv_obj_t *right_col = lv_obj_create(scr);
+    lv_obj_set_size(right_col, 140, 252);
+    lv_obj_align(right_col, LV_ALIGN_TOP_LEFT, 336, 40);
+    lv_obj_set_style_bg_opa(right_col, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(right_col, 0, 0);
+    lv_obj_set_style_pad_all(right_col, 0, 0);
+
+    lv_obj_t *bar_panel = lv_obj_create(right_col);
+    lv_obj_set_size(bar_panel, 140, 130);
+    lv_obj_align(bar_panel, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_bg_color(bar_panel, lv_color_hex(0x141a2e), 0);
+    lv_obj_set_style_radius(bar_panel, 20, 0);
+    lv_obj_set_style_border_width(bar_panel, 0, 0);
+    lv_obj_set_style_pad_all(bar_panel, 14, 0);
+
+    lv_obj_t *bar_title = lv_label_create(bar_panel);
+    lv_label_set_text(bar_title, "LEVELS");
+    lv_obj_set_style_text_color(bar_title, lv_color_hex(0x6a7fa8), 0);
+    lv_obj_align(bar_title, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    lv_obj_t *tmp_lbl = lv_label_create(bar_panel);
+    lv_label_set_text(tmp_lbl, "Temp");
+    lv_obj_set_style_text_color(tmp_lbl, lv_color_hex(0x9ca3af), 0);
+    lv_obj_align(tmp_lbl, LV_ALIGN_TOP_LEFT, 0, 28);
+
+    s_bar_temp = lv_bar_create(bar_panel);
+    lv_obj_set_size(s_bar_temp, 98, 8);
+    lv_obj_align(s_bar_temp, LV_ALIGN_TOP_LEFT, 32, 32);
+    lv_bar_set_range(s_bar_temp, 0, 50);
+    lv_bar_set_value(s_bar_temp, 24, LV_ANIM_OFF);
+    lv_obj_set_style_radius(s_bar_temp, 4, 0);
+    lv_obj_set_style_bg_color(s_bar_temp, lv_color_hex(0x1e293b), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_bar_temp, lv_color_hex(0xff8c42), LV_PART_INDICATOR);
+
+    lv_obj_t *hmd_lbl = lv_label_create(bar_panel);
+    lv_label_set_text(hmd_lbl, "Humid");
+    lv_obj_set_style_text_color(hmd_lbl, lv_color_hex(0x9ca3af), 0);
+    lv_obj_align(hmd_lbl, LV_ALIGN_TOP_LEFT, 0, 58);
+
+    s_bar_humid = lv_bar_create(bar_panel);
+    lv_obj_set_size(s_bar_humid, 88, 8);
+    lv_obj_align(s_bar_humid, LV_ALIGN_TOP_LEFT, 42, 62);
+    lv_bar_set_range(s_bar_humid, 0, 100);
+    lv_bar_set_value(s_bar_humid, 52, LV_ANIM_OFF);
+    lv_obj_set_style_radius(s_bar_humid, 4, 0);
+    lv_obj_set_style_bg_color(s_bar_humid, lv_color_hex(0x1e293b), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_bar_humid, lv_color_hex(0x22d3ee), LV_PART_INDICATOR);
+
+    lv_obj_t *spi_panel = lv_obj_create(right_col);
+    lv_obj_set_size(spi_panel, 140, 56);
+    lv_obj_align(spi_panel, LV_ALIGN_TOP_LEFT, 0, 136);
+    lv_obj_set_style_bg_color(spi_panel, lv_color_hex(0x141a2e), 0);
+    lv_obj_set_style_radius(spi_panel, 16, 0);
+    lv_obj_set_style_border_width(spi_panel, 0, 0);
+    lv_obj_set_style_pad_all(spi_panel, 12, 0);
+
+    lv_obj_t *spi_ttl = lv_label_create(spi_panel);
+    lv_label_set_text(spi_ttl, "DISPLAY");
+    lv_obj_set_style_text_color(spi_ttl, lv_color_hex(0x6a7fa8), 0);
+    lv_obj_align(spi_ttl, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    lv_obj_t *spi_val = lv_label_create(spi_panel);
+    lv_label_set_text(spi_val, "ILI9488  480x320");
+    lv_obj_set_style_text_color(spi_val, lv_color_hex(0x818cf8), 0);
+    lv_obj_align(spi_val, LV_ALIGN_TOP_LEFT, 0, 18);
+
+    lv_obj_t *up_panel = lv_obj_create(right_col);
+    lv_obj_set_size(up_panel, 140, 56);
+    lv_obj_align(up_panel, LV_ALIGN_TOP_LEFT, 0, 198);
+    lv_obj_set_style_bg_color(up_panel, lv_color_hex(0x141a2e), 0);
+    lv_obj_set_style_radius(up_panel, 16, 0);
+    lv_obj_set_style_border_width(up_panel, 0, 0);
+    lv_obj_set_style_pad_all(up_panel, 12, 0);
+
+    lv_obj_t *up_ttl = lv_label_create(up_panel);
+    lv_label_set_text(up_ttl, "UPTIME");
+    lv_obj_set_style_text_color(up_ttl, lv_color_hex(0x6a7fa8), 0);
+    lv_obj_align(up_ttl, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    lv_obj_t *up_val = lv_label_create(up_panel);
+    lv_label_set_text(up_val, "00:14:32");
+    lv_obj_set_style_text_color(up_val, lv_color_hex(0x34d399), 0);
+    lv_obj_set_style_text_font(up_val, &lv_font_montserrat_18, 0);
+    lv_obj_align(up_val, LV_ALIGN_TOP_LEFT, 0, 18);
+
+    /* ── Footer ───────────────────────────────────────────── */
     lv_obj_t *footer = lv_obj_create(scr);
-    lv_obj_set_size(footer, 448, 40);
-    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -10);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
+    lv_obj_set_size(footer, 480, 24);
+    lv_obj_align(footer, LV_ALIGN_TOP_LEFT, 0, 298);
+    lv_obj_set_style_bg_color(footer, lv_color_hex(0x111728), 0);
+    lv_obj_set_style_radius(footer, 0, 0);
     lv_obj_set_style_border_width(footer, 0, 0);
-    lv_obj_set_style_pad_all(footer, 0, 0);
+    lv_obj_set_style_pad_hor(footer, 12, 0);
+    lv_obj_set_style_pad_ver(footer, 0, 0);
 
-    lv_obj_t *action_btn = lv_button_create(footer);
-    lv_obj_set_size(action_btn, 118, 34);
-    lv_obj_align(action_btn, LV_ALIGN_LEFT_MID, 0, 0);
-    lv_obj_set_style_radius(action_btn, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(action_btn, lv_color_hex(0x3d68ff), 0);
-    lv_obj_set_style_border_width(action_btn, 0, 0);
+    lv_obj_t *ft_left = lv_label_create(footer);
+    lv_label_set_text(ft_left, "LVGL 9.5  |  ESP32-S3");
+    lv_obj_set_style_text_color(ft_left, lv_color_hex(0x4a5568), 0);
+    lv_obj_align(ft_left, LV_ALIGN_LEFT_MID, 0, 0);
 
-    lv_obj_t *action_label = lv_label_create(action_btn);
-    lv_label_set_text(action_label, "Trigger Sync");
-    lv_obj_center(action_label);
+    s_frame_label = lv_label_create(footer);
+    lv_label_set_text(s_frame_label, "frame 0");
+    lv_obj_set_style_text_color(s_frame_label, lv_color_hex(0x4a5568), 0);
+    lv_obj_align(s_frame_label, LV_ALIGN_RIGHT_MID, 0, 0);
 
-    lv_obj_t *footer_status = lv_label_create(footer);
-    lv_label_set_text(footer_status, "Render loop stable  |  frame 0");
-    lv_obj_set_style_text_color(footer_status, lv_color_hex(0x90a3c8), 0);
-    lv_obj_align(footer_status, LV_ALIGN_RIGHT_MID, 0, 0);
-
-    lv_obj_add_event_cb(action_btn, ui_action_btn_event_cb, LV_EVENT_CLICKED, footer_status);
-    lv_timer_create(ui_stats_timer_cb, 900, footer_status);
+    lv_timer_create(ui_stats_timer_cb, 900, NULL);
 }
 
 static void lvgl_init_display(void)
