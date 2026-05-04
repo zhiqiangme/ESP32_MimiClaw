@@ -361,7 +361,7 @@ static void ui_stats_timer_cb(lv_timer_t *timer)
 static lv_obj_t *ui_create_metric_card(lv_obj_t *parent, const char *title, lv_obj_t **value_label)
 {
     lv_obj_t *card = lv_obj_create(parent);
-    lv_obj_set_size(card, 146, 92);
+    lv_obj_set_size(card, 146, 80);
     lv_obj_set_style_radius(card, 20, 0);
     lv_obj_set_style_bg_color(card, lv_color_hex(0x1d2436), 0);
     lv_obj_set_style_border_width(card, 0, 0);
@@ -387,8 +387,8 @@ static void ui_create(void)
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x10182a), 0);
 
     lv_obj_t *header = lv_obj_create(scr);
-    lv_obj_set_size(header, 448, 54);
-    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_set_size(header, 448, 44);
+    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 6);
     lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(header, 0, 0);
     lv_obj_set_style_pad_all(header, 0, 0);
@@ -397,15 +397,15 @@ static void ui_create(void)
     lv_label_set_text(title, "MimiClaw Display");
     lv_obj_set_style_text_font(title, LV_FONT_DEFAULT, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xf3f6ff), 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, -8);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, -6);
 
     lv_obj_t *subtitle = lv_label_create(header);
     lv_label_set_text(subtitle, "ESP32-S3  |  LVGL 9.5  |  ILI9488 SPI");
     lv_obj_set_style_text_color(subtitle, lv_color_hex(0x8ea2cc), 0);
-    lv_obj_align(subtitle, LV_ALIGN_LEFT_MID, 2, 14);
+    lv_obj_align(subtitle, LV_ALIGN_LEFT_MID, 2, 12);
 
     lv_obj_t *status_pill = lv_obj_create(header);
-    lv_obj_set_size(status_pill, 110, 34);
+    lv_obj_set_size(status_pill, 110, 30);
     lv_obj_align(status_pill, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_set_style_radius(status_pill, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(status_pill, lv_color_hex(0x193c2c), 0);
@@ -418,15 +418,15 @@ static void ui_create(void)
     lv_obj_center(status_text);
 
     lv_obj_t *left_card = lv_obj_create(scr);
-    lv_obj_set_size(left_card, 448, 118);
-    lv_obj_align(left_card, LV_ALIGN_TOP_MID, 0, 72);
+    lv_obj_set_size(left_card, 448, 100);
+    lv_obj_align(left_card, LV_ALIGN_TOP_MID, 0, 54);
     lv_obj_set_style_radius(left_card, 26, 0);
     lv_obj_set_style_bg_color(left_card, lv_color_hex(0x11192b), 0);
     lv_obj_set_style_border_width(left_card, 0, 0);
-    lv_obj_set_style_pad_all(left_card, 14, 0);
+    lv_obj_set_style_pad_all(left_card, 10, 0);
 
     lv_obj_t *metrics_row = lv_obj_create(left_card);
-    lv_obj_set_size(metrics_row, 420, 92);
+    lv_obj_set_size(metrics_row, 420, 82);
     lv_obj_center(metrics_row);
     lv_obj_set_style_bg_opa(metrics_row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(metrics_row, 0, 0);
@@ -442,7 +442,7 @@ static void ui_create(void)
     lv_label_set_text(s_temp_value_label, "24 C");
 
     lv_obj_t *mini_card = lv_obj_create(metrics_row);
-    lv_obj_set_size(mini_card, 98, 92);
+    lv_obj_set_size(mini_card, 90, 82);
     lv_obj_set_style_radius(mini_card, 20, 0);
     lv_obj_set_style_bg_color(mini_card, lv_color_hex(0x26314d), 0);
     lv_obj_set_style_border_width(mini_card, 0, 0);
@@ -454,14 +454,14 @@ static void ui_create(void)
     lv_obj_center(mini_label);
 
     lv_obj_t *main_grid = lv_obj_create(scr);
-    lv_obj_set_size(main_grid, 448, 112);
-    lv_obj_align(main_grid, LV_ALIGN_TOP_MID, 0, 198);
+    lv_obj_set_size(main_grid, 448, 96);
+    lv_obj_align(main_grid, LV_ALIGN_TOP_MID, 0, 158);
     lv_obj_set_style_bg_opa(main_grid, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(main_grid, 0, 0);
     lv_obj_set_style_pad_all(main_grid, 0, 0);
 
     static int32_t col_dsc[] = {220, 212, LV_GRID_TEMPLATE_LAST};
-    static int32_t row_dsc[] = {112, LV_GRID_TEMPLATE_LAST};
+    static int32_t row_dsc[] = {96, LV_GRID_TEMPLATE_LAST};
     lv_obj_set_grid_dsc_array(main_grid, col_dsc, row_dsc);
 
     lv_obj_t *gauge_panel = lv_obj_create(main_grid);
@@ -471,7 +471,7 @@ static void ui_create(void)
     lv_obj_set_style_border_width(gauge_panel, 0, 0);
 
     s_arc = lv_arc_create(gauge_panel);
-    lv_obj_set_size(s_arc, 126, 126);
+    lv_obj_set_size(s_arc, 90, 90);
     lv_obj_center(s_arc);
     lv_arc_set_rotation(s_arc, 135);
     lv_arc_set_bg_angles(s_arc, 0, 270);
@@ -494,7 +494,7 @@ static void ui_create(void)
     lv_obj_set_style_radius(info_panel, 26, 0);
     lv_obj_set_style_bg_color(info_panel, lv_color_hex(0x11192b), 0);
     lv_obj_set_style_border_width(info_panel, 0, 0);
-    lv_obj_set_style_pad_all(info_panel, 16, 0);
+    lv_obj_set_style_pad_all(info_panel, 12, 0);
 
     lv_obj_t *info_title = lv_label_create(info_panel);
     lv_label_set_text(info_title, "System Preview");
@@ -508,8 +508,8 @@ static void ui_create(void)
     lv_obj_align(info_sub, LV_ALIGN_TOP_LEFT, 0, 28);
 
     s_bar = lv_bar_create(info_panel);
-    lv_obj_set_size(s_bar, 176, 12);
-    lv_obj_align(s_bar, LV_ALIGN_TOP_LEFT, 0, 62);
+    lv_obj_set_size(s_bar, 160, 10);
+    lv_obj_align(s_bar, LV_ALIGN_TOP_LEFT, 0, 50);
     lv_bar_set_range(s_bar, 20, 40);
     lv_bar_set_value(s_bar, 24, LV_ANIM_OFF);
     lv_obj_set_style_radius(s_bar, LV_RADIUS_CIRCLE, 0);
@@ -522,14 +522,14 @@ static void ui_create(void)
     lv_obj_align(info_note, LV_ALIGN_BOTTOM_LEFT, 0, 0);
 
     lv_obj_t *footer = lv_obj_create(scr);
-    lv_obj_set_size(footer, 448, 44);
+    lv_obj_set_size(footer, 448, 40);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, -10);
     lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(footer, 0, 0);
     lv_obj_set_style_pad_all(footer, 0, 0);
 
     lv_obj_t *action_btn = lv_button_create(footer);
-    lv_obj_set_size(action_btn, 118, 40);
+    lv_obj_set_size(action_btn, 118, 34);
     lv_obj_align(action_btn, LV_ALIGN_LEFT_MID, 0, 0);
     lv_obj_set_style_radius(action_btn, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(action_btn, lv_color_hex(0x3d68ff), 0);
