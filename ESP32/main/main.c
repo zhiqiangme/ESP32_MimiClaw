@@ -78,7 +78,6 @@ static lv_obj_t *s_bar_temp;
 static lv_obj_t *s_bar_humid;
 static lv_obj_t *s_temp_val;
 static lv_obj_t *s_humid_val;
-static lv_obj_t *s_press_val;
 static lv_obj_t *s_load_pct;
 static lv_obj_t *s_frame_label;
 
