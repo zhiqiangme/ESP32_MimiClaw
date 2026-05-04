@@ -19,10 +19,8 @@
 #define LCD_H_RES 480
 #define LCD_V_RES 320
 
-// 底层 SPI 分块发送行数。适中取值兼顾刷新速度和稳定性。
-#define LCD_IO_LINES 20
 // LVGL 渲染缓冲行数。
-#define LVGL_DRAW_BUF_LINES 32
+#define LVGL_DRAW_BUF_LINES 64
 
 // 下面这一组是当前项目假定的 LCD 接线。
 // 如果实物接线不同，先改这里再烧录。
@@ -35,7 +33,7 @@
 #define PIN_NUM_LCD_RST 14
 #define PIN_NUM_LCD_BKLT 21
 
-#define LCD_SPI_CLOCK_HZ (26 * 1000 * 1000)
+#define LCD_SPI_CLOCK_HZ (80 * 1000 * 1000)
 #define LCD_SPI_MODE 0
 #define LCD_BKLT_ON_LEVEL 1
 
@@ -64,9 +62,7 @@
 static const char *TAG = "ili9488_lvgl";
 
 static spi_device_handle_t s_lcd_spi;
-// ILI9488 按 18-bit SPI 模式写像素，因此底层发送缓冲按 3 字节/像素预留。
-static uint8_t s_lcd_io_buf[LCD_H_RES * LCD_IO_LINES * 3];
-// LVGL 用 RGB565 渲染，减少内存占用；flush 时再转换成 ILI9488 需要的 18-bit。
+// LVGL 用 RGB565 渲染，16-bit 模式下直接发送到 ILI9488。
 static uint16_t s_lvgl_buf[LCD_H_RES * LVGL_DRAW_BUF_LINES];
 
 static lv_obj_t *s_status_value_label;
@@ -157,18 +153,6 @@ static void lcd_set_window(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
     lcd_send_cmd(ILI9488_CMD_RAMWR);
 }
 
-static size_t lcd_expand_rgb565_to_666_block(const uint16_t *src, size_t pixels)
-{
-    for(size_t i = 0; i < pixels; ++i) {
-        uint16_t color = src[i];
-        s_lcd_io_buf[(i * 3) + 0] = (uint8_t)(color >> 8) & 0xF8;
-        s_lcd_io_buf[(i * 3) + 1] = (uint8_t)(color >> 3) & 0xFC;
-        s_lcd_io_buf[(i * 3) + 2] = (uint8_t)(color << 3);
-    }
-
-    return pixels * 3;
-}
-
 static void lcd_draw_bitmap_rgb565(uint16_t x, uint16_t y, uint16_t width, uint16_t height, const uint16_t *pixels)
 {
     if(width == 0 || height == 0 || pixels == NULL) {
@@ -176,27 +160,19 @@ static void lcd_draw_bitmap_rgb565(uint16_t x, uint16_t y, uint16_t width, uint1
     }
 
     lcd_set_window(x, y, x + width - 1, y + height - 1);
-
-    while(height > 0) {
-        uint16_t chunk_lines = height > LCD_IO_LINES ? LCD_IO_LINES : height;
-        size_t chunk_pixels = (size_t)width * chunk_lines;
-        size_t bytes_to_send = lcd_expand_rgb565_to_666_block(pixels, chunk_pixels);
-        lcd_send_data(s_lcd_io_buf, bytes_to_send);
-
-        pixels += chunk_pixels;
-        height -= chunk_lines;
-    }
+    lcd_send_data(pixels, (size_t)width * height * 2);
 }
 
 static void lcd_fill_screen(uint16_t color)
 {
-    for(size_t i = 0; i < LCD_H_RES * LCD_IO_LINES; ++i) {
+    for(size_t i = 0; i < LCD_H_RES * LVGL_DRAW_BUF_LINES; ++i) {
         s_lvgl_buf[i] = color;
     }
 
-    for(uint16_t y = 0; y < LCD_V_RES; y += LCD_IO_LINES) {
-        uint16_t lines = (LCD_V_RES - y > LCD_IO_LINES) ? LCD_IO_LINES : (LCD_V_RES - y);
-        lcd_draw_bitmap_rgb565(0, y, LCD_H_RES, lines, s_lvgl_buf);
+    lcd_set_window(0, 0, LCD_H_RES - 1, LCD_V_RES - 1);
+    for(uint16_t y = 0; y < LCD_V_RES; y += LVGL_DRAW_BUF_LINES) {
+        uint16_t lines = (LCD_V_RES - y > LVGL_DRAW_BUF_LINES) ? LVGL_DRAW_BUF_LINES : (LCD_V_RES - y);
+        lcd_send_data(s_lvgl_buf, (size_t)LCD_H_RES * lines * 2);
     }
 }
 
@@ -241,9 +217,9 @@ static void lcd_init(void)
     lcd_send_cmd(0xE1);
     lcd_send_data((uint8_t[]){0x00, 0x17, 0x1A, 0x04, 0x0E, 0x06, 0x2F, 0x45, 0x43, 0x02, 0x0A, 0x09, 0x32, 0x36, 0x0F}, 15);
 
-    // 0x66 表示 18-bit/pixel，后续 RAMWR 需要每像素发送 3 字节。
+    // 0x55 表示 16-bit/pixel (RGB565)，后续 RAMWR 每像素发送 2 字节。
     lcd_send_cmd(ILI9488_CMD_COLMOD);
-    lcd_send_data((uint8_t[]){0x66}, 1);
+    lcd_send_data((uint8_t[]){0x55}, 1);
 
     lcd_set_rotation();
 
@@ -388,7 +364,7 @@ static void ui_create(void)
     lv_obj_set_style_border_width(mini_card, 0, 0);
 
     lv_obj_t *mini_label = lv_label_create(mini_card);
-    lv_label_set_text(mini_label, "SPI\n26 MHz");
+    lv_label_set_text(mini_label, "SPI\n80 MHz");
     lv_obj_set_style_text_align(mini_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(mini_label, lv_color_hex(0xdce6ff), 0);
     lv_obj_center(mini_label);
@@ -494,7 +470,7 @@ static void lvgl_init_display(void)
     lv_tick_set_cb(lvgl_tick_cb);
 
     lv_display_t *display = lv_display_create(LCD_H_RES, LCD_V_RES);
-    lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB565);
+    lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB565_SWAPPED);
     lv_display_set_buffers(display, s_lvgl_buf, NULL, sizeof(s_lvgl_buf), LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(display, lvgl_flush_cb);
 }
@@ -511,7 +487,7 @@ void app_main(void)
         .miso_io_num = PIN_NUM_MISO,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = sizeof(s_lcd_io_buf),
+        .max_transfer_sz = sizeof(s_lvgl_buf),
     };
     spi_device_interface_config_t lcd_devcfg = {
         .clock_speed_hz = LCD_SPI_CLOCK_HZ,
