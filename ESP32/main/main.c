@@ -80,6 +80,7 @@ static lv_obj_t *s_temp_val;
 static lv_obj_t *s_humid_val;
 static lv_obj_t *s_load_pct;
 static lv_obj_t *s_frame_label;
+static lv_obj_t *s_uptime_label;
 
 static void lcd_send_cmd(uint8_t cmd)
 {
@@ -341,21 +342,24 @@ static void ui_stats_timer_cb(lv_timer_t *timer)
 
     // Real CPU usage via FreeRTOS run-time stats
     static uint64_t prev_total = 0;
-    TaskStatus_t tasks[8];
-    uint32_t count = uxTaskGetSystemState(tasks, 8, NULL);
+    static uint64_t prev_idle = 0;
+    TaskStatus_t tasks[16];
+    uint32_t count = uxTaskGetSystemState(tasks, 16, NULL);
     uint64_t total = 0;
-    uint32_t idle_time = 0;
+    uint64_t idle_time = 0;
     for(uint32_t i = 0; i < count; i++) {
         total += tasks[i].ulRunTimeCounter;
         if(strncmp(tasks[i].pcTaskName, "IDLE", 4) == 0) {
-            idle_time = tasks[i].ulRunTimeCounter;
+            idle_time += tasks[i].ulRunTimeCounter;
         }
     }
     uint64_t delta_total = total - prev_total;
+    uint64_t delta_idle = idle_time - prev_idle;
     prev_total = total;
+    prev_idle = idle_time;
     int32_t load = 0;
     if(delta_total > 0) {
-        load = (int32_t)(100 - (idle_time * 100 / (delta_total > 0 ? delta_total : 1)));
+        load = (int32_t)(100 - (delta_idle * 100 / delta_total));
         if(load < 0) load = 0;
         if(load > 100) load = 100;
     }
@@ -370,6 +374,14 @@ static void ui_stats_timer_cb(lv_timer_t *timer)
     lv_label_set_text_fmt(s_temp_val, "%ld C", (long)temp);
     lv_label_set_text_fmt(s_humid_val, "%ld%%", (long)humid);
     lv_label_set_text_fmt(s_frame_label, "frame %ld", (long)phase);
+
+    // Real uptime
+    uint64_t us = esp_timer_get_time();
+    uint32_t sec = (uint32_t)(us / 1000000ULL);
+    uint32_t h = sec / 3600;
+    uint32_t m = (sec % 3600) / 60;
+    uint32_t s = sec % 60;
+    lv_label_set_text_fmt(s_uptime_label, "%02lu:%02lu:%02lu", (unsigned long)h, (unsigned long)m, (unsigned long)s);
 
     phase++;
 }
@@ -468,7 +480,7 @@ static void ui_create(void)
     /* ── Center column: gauge + info boxes ────────────────── */
     lv_obj_t *ctr_col = lv_obj_create(scr);
     lv_obj_set_size(ctr_col, 174, 252);
-    lv_obj_align(ctr_col, LV_ALIGN_TOP_LEFT, 156, 40);
+    lv_obj_align(ctr_col, LV_ALIGN_TOP_LEFT, 155, 40);
     lv_obj_set_style_bg_opa(ctr_col, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(ctr_col, 0, 0);
     lv_obj_set_style_pad_all(ctr_col, 0, 0);
@@ -651,11 +663,11 @@ static void ui_create(void)
     lv_obj_set_style_text_color(up_ttl, lv_color_hex(0x6a7fa8), 0);
     lv_obj_align(up_ttl, LV_ALIGN_TOP_LEFT, 0, 0);
 
-    lv_obj_t *up_val = lv_label_create(up_panel);
-    lv_label_set_text(up_val, "00:14:32");
-    lv_obj_set_style_text_color(up_val, lv_color_hex(0x34d399), 0);
-    lv_obj_set_style_text_font(up_val, &lv_font_montserrat_18, 0);
-    lv_obj_align(up_val, LV_ALIGN_TOP_LEFT, 0, 18);
+    s_uptime_label = lv_label_create(up_panel);
+    lv_label_set_text(s_uptime_label, "00:00:00");
+    lv_obj_set_style_text_color(s_uptime_label, lv_color_hex(0x34d399), 0);
+    lv_obj_set_style_text_font(s_uptime_label, &lv_font_montserrat_18, 0);
+    lv_obj_align(s_uptime_label, LV_ALIGN_TOP_LEFT, 0, 18);
 
     /* ── Footer ───────────────────────────────────────────── */
     lv_obj_t *footer = lv_obj_create(scr);
