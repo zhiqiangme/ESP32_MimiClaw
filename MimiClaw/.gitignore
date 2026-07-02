@@ -1,0 +1,67 @@
+####################################
+# ESP32 忽略规则 (ESP-IDF / CMake / LVGL)
+####################################
+
+# --- ESP-IDF 构建输出和缓存 ---
+build/
+.cache/
+managed_components/
+sdkconfig.old
+
+# --- 编辑器本地配置 ---
+.vscode/
+.idea/
+.vs/
+
+# --- 通用编译中间文件 ---
+**/*.o
+**/*.obj
+**/*.d
+**/*.elf
+**/*.map
+**/*.bin
+**/*.swp
+**/*.swo
+**/*.bak
+**/*.gcda
+**/*.gcno
+__pycache__/
+**/__pycache__/
+tags
+
+# --- LVGL 本地生成文件 ---
+components/lvgl/scripts/cppcheck_res.txt
+components/lvgl/scripts/built_in_font/lv_font_*
+components/lvgl/emscripten_builder/
+components/lvgl/test_screenshot_error.h
+components/lvgl/build/
+components/lvgl/.config*
+components/lvgl/config.h
+components/lvgl/defconfig
+components/lvgl/env/
+components/lvgl/docs-venv/
+
+# --- LVGL 文档生成输出 ---
+components/lvgl/docs/build/
+components/lvgl/docs/doxygen/
+components/lvgl/docs/intermediate/
+components/lvgl/docs/src/_static/built_lv_examples/
+
+# --- LVGL 脚本生成输出 ---
+components/lvgl/scripts/CHANGELOG_LAST.md
+components/lvgl/scripts/CHANGELOG_LAST.rst
+
+# --- LVGL 测试生成输出 ---
+components/lvgl/tests/**/*.out
+components/lvgl/tests/**/*_Runner.c
+components/lvgl/tests/**/*.bin
+components/lvgl/tests/**/*.dat
+components/lvgl/tests/**/*.raw
+components/lvgl/tests/**/*_err.png
+components/lvgl/tests/**/build_*/
+components/lvgl/tests/**/report*/
+components/lvgl/tests/**/wayland_protocols/
+components/lvgl/tests/makefiles/test_file
+components/lvgl/tests/makefiles_uefi/test_file
+components/lvgl/tests/src/test_libs/rnd_unicodes/rnd_unicodes/cmake-build-*/
+components/lvgl/tests/src/test_libs/rnd_unicodes/rnd_unicodes/build/
